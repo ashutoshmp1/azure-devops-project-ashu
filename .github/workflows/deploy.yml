@@ -1,4 +1,4 @@
-name: Deploy to Azure Staging
+name: Deploy with Health Check & Rollback
 
 on:
   push:
@@ -8,7 +8,6 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -45,6 +44,7 @@ jobs:
         run: sleep 30
 
       - name: Health Check
+        id: healthcheck
         run: |
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://azure-devops-project-ashu-staging.azurewebsites.net/health)
           echo "Health status: $STATUS"
@@ -52,3 +52,21 @@ jobs:
             echo "Health check failed"
             exit 1
           fi
+
+      - name: Swap Staging to Production
+        if: success()
+        run: |
+          az webapp deployment slot swap \
+            --name azure-devops-project-ashu \
+            --resource-group devops-rg \
+            --slot staging \
+            --target-slot production
+
+      - name: Rollback if Health Check Fails
+        if: failure()
+        run: |
+          az webapp deployment slot swap \
+            --name azure-devops-project-ashu \
+            --resource-group devops-rg \
+            --slot staging \
+            --target-slot production
